@@ -270,7 +270,6 @@ zpool_feature_init(void)
 	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
 	    large_blocks_deps);
 
-	{
 	static const spa_feature_t large_dnode_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_NONE
@@ -280,7 +279,6 @@ zpool_feature_init(void)
 	    "Variable on-disk size of dnodes.",
 	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
 	    large_dnode_deps);
-	}
 
 	static const spa_feature_t sha512_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
@@ -312,36 +310,6 @@ zpool_feature_init(void)
 	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
 	    edonr_deps);
 
-	{
-	static const spa_feature_t bookmark_v2_deps[] = {
-		SPA_FEATURE_EXTENSIBLE_DATASET,
-		SPA_FEATURE_BOOKMARKS,
-		SPA_FEATURE_NONE
-	};
-	zfeature_register(SPA_FEATURE_BOOKMARK_V2,
-	    "com.datto:bookmark_v2", "bookmark_v2",
-	    "Support for larger bookmarks",
-	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
-	    bookmark_v2_deps);
-	}
-
-	{
-	static const spa_feature_t encryption_deps[] = {
-		SPA_FEATURE_EXTENSIBLE_DATASET,
-		SPA_FEATURE_BOOKMARK_V2,
-		SPA_FEATURE_NONE
-	};
-	zfeature_register(SPA_FEATURE_ENCRYPTION,
-	    "com.datto:encryption", "encryption",
-	    "Support for dataset level encryption",
-	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
-	    encryption_deps);
-	}
-	zfeature_register(SPA_FEATURE_DEVICE_REMOVAL,
-	    "com.delphix:device_removal", "device_removal",
-	    "Top-level vdevs can be removed, reducing logical pool size.",
-	    ZFEATURE_FLAG_MOS, ZFEATURE_TYPE_BOOLEAN, NULL);
-
 	static const spa_feature_t obsolete_counts_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_DEVICE_REMOVAL,
@@ -353,19 +321,44 @@ zpool_feature_init(void)
 	    "freed or remapped.",
 	    ZFEATURE_FLAG_READONLY_COMPAT, ZFEATURE_TYPE_BOOLEAN,
 	    obsolete_counts_deps);
-	{
+
+	static const spa_feature_t bookmark_v2_deps[] = {
+		SPA_FEATURE_EXTENSIBLE_DATASET,
+		SPA_FEATURE_BOOKMARKS,
+		SPA_FEATURE_NONE
+	};
+	zfeature_register(SPA_FEATURE_BOOKMARK_V2,
+	    "com.datto:bookmark_v2", "bookmark_v2",
+	    "Support for larger bookmarks",
+	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
+	    bookmark_v2_deps);
+
+	static const spa_feature_t encryption_deps[] = {
+		SPA_FEATURE_EXTENSIBLE_DATASET,
+		SPA_FEATURE_BOOKMARK_V2,
+		SPA_FEATURE_NONE
+	};
+	zfeature_register(SPA_FEATURE_ENCRYPTION,
+	    "com.datto:encryption", "encryption",
+	    "Support for dataset level encryption",
+	    ZFEATURE_FLAG_PER_DATASET, ZFEATURE_TYPE_BOOLEAN,
+	    encryption_deps);
+
+	zfeature_register(SPA_FEATURE_DEVICE_REMOVAL,
+	    "com.delphix:device_removal", "device_removal",
+	    "Top-level vdevs can be removed, reducing logical pool size.",
+	    ZFEATURE_FLAG_MOS, ZFEATURE_TYPE_BOOLEAN, NULL);
+
 	zfeature_register(SPA_FEATURE_ALLOCATION_CLASSES,
 	    "org.zfsonlinux:allocation_classes", "allocation_classes",
 	    "Support for separate allocation classes.",
 	    ZFEATURE_FLAG_READONLY_COMPAT, ZFEATURE_TYPE_BOOLEAN, NULL);
-	}
 
 	zfeature_register(SPA_FEATURE_RESILVER_DEFER,
 	    "com.datto:resilver_defer", "resilver_defer",
 	    "Support for defering new resilvers when one is already running.",
 	    ZFEATURE_FLAG_READONLY_COMPAT, ZFEATURE_TYPE_BOOLEAN, NULL);
 
-	{
 	static const spa_feature_t userobj_accounting_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_NONE
@@ -375,9 +368,7 @@ zpool_feature_init(void)
 	    "User/Group object accounting.",
 	    ZFEATURE_FLAG_READONLY_COMPAT | ZFEATURE_FLAG_PER_DATASET,
 	    ZFEATURE_TYPE_BOOLEAN, userobj_accounting_deps);
-	}
 
-	{
 	static const spa_feature_t project_quota_deps[] = {
 		SPA_FEATURE_EXTENSIBLE_DATASET,
 		SPA_FEATURE_NONE
@@ -387,7 +378,4 @@ zpool_feature_init(void)
 	    "space/object accounting based on project ID.",
 	    ZFEATURE_FLAG_READONLY_COMPAT | ZFEATURE_FLAG_PER_DATASET,
 	    ZFEATURE_TYPE_BOOLEAN, project_quota_deps);
-	}
-
-
 }

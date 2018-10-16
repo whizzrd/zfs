@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  */
@@ -460,6 +460,9 @@ void dsl_dataset_activate_feature(uint64_t dsobj, spa_feature_t f, void *arg,
 void dsl_dataset_deactivate_feature(dsl_dataset_t *ds, spa_feature_t f,
     dmu_tx_t *tx);
 boolean_t dsl_dataset_feature_is_active(dsl_dataset_t *ds, spa_feature_t f);
+boolean_t dsl_dataset_get_uint64_array_feature(dsl_dataset_t *ds,
+    spa_feature_t f, uint64_t *outlength, uint64_t **outp);
+
 boolean_t dsl_dataset_get_uint64_array_feature(dsl_dataset_t *ds,
     spa_feature_t f, uint64_t *outlength, uint64_t **outp);
 

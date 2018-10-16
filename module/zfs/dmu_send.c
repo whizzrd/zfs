@@ -1051,6 +1051,7 @@ dmu_send_impl(void *tag, dsl_pool_t *dp, dsl_dataset_t *to_ds,
 	if ((large_block_ok || rawok) &&
 	    dsl_dataset_feature_is_active(to_ds, SPA_FEATURE_LARGE_BLOCKS))
 		featureflags |= DMU_BACKUP_FEATURE_LARGE_BLOCKS;
+
 	if (dsl_dataset_feature_is_active(to_ds, SPA_FEATURE_LARGE_DNODE))
 		featureflags |= DMU_BACKUP_FEATURE_LARGE_DNODE;
 
