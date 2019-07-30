@@ -58,6 +58,7 @@ struct dmu_tx;
 	(arc_buf_size(buf) > OBJSET_OLD_PHYS_SIZE)
 
 #define	OBJSET_FLAG_USERACCOUNTING_COMPLETE	(1ULL<<0)
+#define	OBJSET_FLAG_USEROBJACCOUNTING_COMPLETE	(1ULL << 1)
 
 /* all flags are currently non-portable */
 #define	OBJSET_CRYPT_PORTABLE_FLAGS_MASK	(0)
@@ -224,6 +225,9 @@ void dmu_objset_userquota_get_ids(dnode_t *dn, boolean_t before, dmu_tx_t *tx);
 boolean_t dmu_objset_userused_enabled(objset_t *os);
 int dmu_objset_userspace_upgrade(objset_t *os);
 boolean_t dmu_objset_userspace_present(objset_t *os);
+boolean_t dmu_objset_userobjused_enabled(objset_t *os);
+boolean_t dmu_objset_userobjspace_upgradable(objset_t *os);
+boolean_t dmu_objset_userobjspace_present(objset_t *os);
 boolean_t dmu_objset_incompatible_encryption_version(objset_t *os);
 int dmu_fsname(const char *snapname, char *buf);
 

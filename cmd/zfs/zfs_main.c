@@ -506,9 +506,17 @@ usage(boolean_t requested)
 		(void) fprintf(fp, " NO       NO   <size>\n");
 		(void) fprintf(fp, "\t%-15s ", "groupused@...");
 		(void) fprintf(fp, " NO       NO   <size>\n");
+		(void) fprintf(fp, "\t%-15s ", "userobjused@...");
+		(void) fprintf(fp, " NO       NO   <size>\n");
+		(void) fprintf(fp, "\t%-15s ", "groupobjused@...");
+		(void) fprintf(fp, " NO       NO   <size>\n");
 		(void) fprintf(fp, "\t%-15s ", "userquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "groupquota@...");
+		(void) fprintf(fp, "YES       NO   <size> | none\n");
+		(void) fprintf(fp, "\t%-15s ", "userobjquota@...");
+		(void) fprintf(fp, "YES       NO   <size> | none\n");
+		(void) fprintf(fp, "\t%-15s ", "groupobjquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "written@<snap>");
 		(void) fprintf(fp, " NO       NO   <size>\n");
@@ -2453,6 +2461,20 @@ compare_nums:
 	return (0);
 }
 
+static boolean_t
+zfs_prop_is_user(unsigned p)
+{
+	return (p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA ||
+	    p == ZFS_PROP_USEROBJUSED || p == ZFS_PROP_USEROBJQUOTA);
+}
+
+static boolean_t
+zfs_prop_is_group(unsigned p)
+{
+	return (p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA ||
+	    p == ZFS_PROP_GROUPOBJUSED || p == ZFS_PROP_GROUPOBJQUOTA);
+}
+
 static inline const char *
 us_type2str(unsigned field_type)
 {
@@ -2613,14 +2635,29 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 		(void) snprintf(sizebuf, sizeof (sizebuf), "%llu",
 		    (u_longlong_t)space);
 	sizelen = strlen(sizebuf);
-	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED) {
+w	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED ||
+	    prop == ZFS_PROP_PROJECTUSED) {
 		propname = "used";
 		if (!nvlist_exists(props, "quota"))
 			(void) nvlist_add_uint64(props, "quota", 0);
-	} else {
+	} else if (prop == ZFS_PROP_USERQUOTA || prop == ZFS_PROP_GROUPQUOTA ||
+	    prop == ZFS_PROP_PROJECTQUOTA) {
 		propname = "quota";
 		if (!nvlist_exists(props, "used"))
 			(void) nvlist_add_uint64(props, "used", 0);
+	} else if (prop == ZFS_PROP_USEROBJUSED ||
+	    prop == ZFS_PROP_GROUPOBJUSED || prop == ZFS_PROP_PROJECTOBJUSED) {
+		propname = "objused";
+		if (!nvlist_exists(props, "objquota"))
+			(void) nvlist_add_uint64(props, "objquota", 0);
+	} else if (prop == ZFS_PROP_USEROBJQUOTA ||
+	    prop == ZFS_PROP_GROUPOBJQUOTA ||
+	    prop == ZFS_PROP_PROJECTOBJQUOTA) {
+		propname = "objquota";
+		if (!nvlist_exists(props, "objused"))
+			(void) nvlist_add_uint64(props, "objused", 0);
+	} else {
+		return (-1);
 	}
 	sizeidx = us_field_index(propname);
 	if (sizelen > cb->cb_width[sizeidx])
@@ -4298,6 +4335,11 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_GROUPQUOTA	"groupquota"
 #define	ZFS_DELEG_PERM_USERUSED		"userused"
 #define	ZFS_DELEG_PERM_GROUPUSED	"groupused"
+#define	ZFS_DELEG_PERM_USEROBJQUOTA	"userobjquota"
+#define	ZFS_DELEG_PERM_GROUPOBJQUOTA	"groupobjquota"
+#define	ZFS_DELEG_PERM_USEROBJUSED	"userobjused"
+#define	ZFS_DELEG_PERM_GROUPOBJUSED	"groupobjused"
+
 #define	ZFS_DELEG_PERM_HOLD		"hold"
 #define	ZFS_DELEG_PERM_RELEASE		"release"
 #define	ZFS_DELEG_PERM_DIFF		"diff"
@@ -4334,6 +4376,11 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_USERPROP, ZFS_DELEG_NOTE_USERPROP },
 	{ ZFS_DELEG_PERM_USERQUOTA, ZFS_DELEG_NOTE_USERQUOTA },
 	{ ZFS_DELEG_PERM_USERUSED, ZFS_DELEG_NOTE_USERUSED },
+	{ ZFS_DELEG_PERM_USEROBJQUOTA, ZFS_DELEG_NOTE_USEROBJQUOTA },
+	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
+	{ ZFS_DELEG_PERM_GROUPOBJQUOTA, ZFS_DELEG_NOTE_GROUPOBJQUOTA },
+	{ ZFS_DELEG_PERM_GROUPOBJUSED, ZFS_DELEG_NOTE_GROUPOBJUSED },
+
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 
@@ -4411,6 +4458,10 @@ deleg_perm_type(zfs_deleg_note_t note)
 	case ZFS_DELEG_NOTE_USERPROP:
 	case ZFS_DELEG_NOTE_USERQUOTA:
 	case ZFS_DELEG_NOTE_USERUSED:
+	case ZFS_DELEG_NOTE_USEROBJQUOTA:
+	case ZFS_DELEG_NOTE_USEROBJUSED:
+	case ZFS_DELEG_NOTE_GROUPOBJQUOTA:
+	case ZFS_DELEG_NOTE_GROUPOBJUSED:
 		/* other */
 		return (gettext("other"));
 	default:
@@ -4919,6 +4970,19 @@ deleg_perm_comment(zfs_deleg_note_t note)
 		break;
 	case ZFS_DELEG_NOTE_USERUSED:
 		str = gettext("Allows reading any userused@... property");
+		break;
+	case ZFS_DELEG_NOTE_USEROBJQUOTA:
+		str = gettext("Allows accessing any userobjquota@... property");
+		break;
+	case ZFS_DELEG_NOTE_GROUPOBJQUOTA:
+		str = gettext("Allows accessing any \n\t\t\t\t"
+		    "groupobjquota@... property");
+		break;
+	case ZFS_DELEG_NOTE_GROUPOBJUSED:
+		str = gettext("Allows reading any groupobjused@... property");
+		break;
+	case ZFS_DELEG_NOTE_USEROBJUSED:
+		str = gettext("Allows reading any userobjused@... property");
 		break;
 		/* other */
 	default:
