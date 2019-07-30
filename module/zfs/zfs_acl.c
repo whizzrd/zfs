@@ -1809,13 +1809,6 @@ zfs_acl_ids_free(zfs_acl_ids_t *acl_ids)
 	acl_ids->z_fuidp = NULL;
 }
 
-boolean_t
-zfs_acl_ids_overquota(zfsvfs_t *zfsvfs, zfs_acl_ids_t *acl_ids)
-{
-	return (zfs_fuid_overquota(zfsvfs, B_FALSE, acl_ids->z_fuid) ||
-	    zfs_fuid_overquota(zfsvfs, B_TRUE, acl_ids->z_fgid));
-}
-
 /*
  * Retrieve a file's ACL
  */

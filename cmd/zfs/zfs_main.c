@@ -510,6 +510,8 @@ usage(boolean_t requested)
 		(void) fprintf(fp, " NO       NO   <size>\n");
 		(void) fprintf(fp, "\t%-15s ", "groupobjused@...");
 		(void) fprintf(fp, " NO       NO   <size>\n");
+		(void) fprintf(fp, "\t%-15s ", "projectobjused@...");
+		(void) fprintf(fp, " NO       NO   <size>\n");
 		(void) fprintf(fp, "\t%-15s ", "userquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "groupquota@...");
@@ -517,6 +519,8 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "\t%-15s ", "userobjquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "groupobjquota@...");
+		(void) fprintf(fp, "YES       NO   <size> | none\n");
+		(void) fprintf(fp, "\t%-15s ", "projectobjquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "written@<snap>");
 		(void) fprintf(fp, " NO       NO   <size>\n");
@@ -2320,8 +2324,10 @@ static char *us_field_names[] = { "type", "name", "used", "quota" };
 #define	USTYPE_PSX_USR	(1 << 1)
 #define	USTYPE_SMB_GRP	(1 << 2)
 #define	USTYPE_SMB_USR	(1 << 3)
+#define	USTYPE_PROJ	(1 << 4)
 #define	USTYPE_ALL	\
-	(USTYPE_PSX_GRP | USTYPE_PSX_USR | USTYPE_SMB_GRP | USTYPE_SMB_USR)
+	(USTYPE_PSX_GRP | USTYPE_PSX_USR | USTYPE_SMB_GRP | USTYPE_SMB_USR | \
+	    USTYPE_PROJ)
 
 static int us_type_bits[] = {
 	USTYPE_PSX_GRP,
@@ -2475,6 +2481,13 @@ zfs_prop_is_group(unsigned p)
 	    p == ZFS_PROP_GROUPOBJUSED || p == ZFS_PROP_GROUPOBJQUOTA);
 }
 
+static boolean_t
+zfs_prop_is_project(unsigned p)
+{
+	return (p == ZFS_PROP_PROJECTUSED || p == ZFS_PROP_PROJECTQUOTA ||
+	    p == ZFS_PROP_PROJECTOBJUSED || p == ZFS_PROP_PROJECTOBJQUOTA);
+}
+
 static inline const char *
 us_type2str(unsigned field_type)
 {
@@ -2487,6 +2500,8 @@ us_type2str(unsigned field_type)
 		return ("SMB User");
 	case USTYPE_SMB_GRP:
 		return ("SMB Group");
+	case USTYPE_PROJ:
+		return ("Project");
 	default:
 		return ("Undefined");
 	}
@@ -2564,7 +2579,7 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 
 	if (cb->cb_sid2posix || domain == NULL || domain[0] == '\0') {
 		/* POSIX or -i */
-		if (prop == ZFS_PROP_GROUPUSED || prop == ZFS_PROP_GROUPQUOTA) {
+		if (zfs_prop_is_group(prop)) {
 			type = USTYPE_PSX_GRP;
 			if (!cb->cb_numname) {
 				struct group *g;
@@ -2572,7 +2587,7 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 				if ((g = getgrgid(rid)) != NULL)
 					name = g->gr_name;
 			}
-		} else {
+		} else if (zfs_prop_is_user(prop)) {
 			type = USTYPE_PSX_USR;
 			if (!cb->cb_numname) {
 				struct passwd *p;
@@ -2580,6 +2595,8 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 				if ((p = getpwuid(rid)) != NULL)
 					name = p->pw_name;
 			}
+		} else {
+			type = USTYPE_PROJ;
 		}
 	}
 
@@ -2629,13 +2646,21 @@ userspace_cb(void *arg, const char *domain, uid_t rid, uint64_t space)
 	}
 
 	/* Calculate/update width of USED/QUOTA fields */
-	if (cb->cb_nicenum)
-		zfs_nicenum(space, sizebuf, sizeof (sizebuf));
-	else
+	if (cb->cb_nicenum) {
+		if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED ||
+		    prop == ZFS_PROP_USERQUOTA || prop == ZFS_PROP_GROUPQUOTA ||
+		    prop == ZFS_PROP_PROJECTUSED ||
+		    prop == ZFS_PROP_PROJECTQUOTA) {
+			zfs_nicebytes(space, sizebuf, sizeof (sizebuf));
+		} else {
+			zfs_nicenum(space, sizebuf, sizeof (sizebuf));
+		}
+	} else {
 		(void) snprintf(sizebuf, sizeof (sizebuf), "%llu",
 		    (u_longlong_t)space);
+	}
 	sizelen = strlen(sizebuf);
-w	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED ||
+	if (prop == ZFS_PROP_USERUSED || prop == ZFS_PROP_GROUPUSED ||
 	    prop == ZFS_PROP_PROJECTUSED) {
 		propname = "used";
 		if (!nvlist_exists(props, "quota"))
@@ -2831,13 +2856,22 @@ zfs_do_userspace(int argc, char **argv)
 	if (argc < 2)
 		usage(B_FALSE);
 
-	if (strcmp(argv[0], "groupspace") == 0)
+	if (strcmp(argv[0], "groupspace") == 0) {
 		/* Toggle default group types */
 		types = USTYPE_PSX_GRP | USTYPE_SMB_GRP;
+	} else if (strcmp(argv[0], "projectspace") == 0) {
+		types = USTYPE_PROJ;
+		prtnum = B_TRUE;
+	}
 
 	while ((c = getopt(argc, argv, "nHpo:s:S:t:i")) != -1) {
 		switch (c) {
 		case 'n':
+			if (types == USTYPE_PROJ) {
+				(void) fprintf(stderr,
+				    gettext("invalid option 'n'\n"));
+				usage(B_FALSE);
+			}
 			prtnum = B_TRUE;
 			break;
 		case 'H':
@@ -2859,9 +2893,19 @@ zfs_do_userspace(int argc, char **argv)
 			}
 			break;
 		case 't':
+			if (types == USTYPE_PROJ) {
+				(void) fprintf(stderr,
+				    gettext("invalid option 't'\n"));
+				usage(B_FALSE);
+			}
 			tfield = optarg;
 			break;
 		case 'i':
+			if (types == USTYPE_PROJ) {
+				(void) fprintf(stderr,
+				    gettext("invalid option 'i'\n"));
+				usage(B_FALSE);
+			}
 			sid2posix = B_TRUE;
 			break;
 		case ':':
@@ -2955,15 +2999,20 @@ zfs_do_userspace(int argc, char **argv)
 		cb.cb_width[i] = strlen(gettext(us_field_hdr[i]));
 
 	for (p = 0; p < ZFS_NUM_USERQUOTA_PROPS; p++) {
-		if (((p == ZFS_PROP_USERUSED || p == ZFS_PROP_USERQUOTA) &&
+		if ((zfs_prop_is_user(p) &&
 		    !(types & (USTYPE_PSX_USR | USTYPE_SMB_USR))) ||
-		    ((p == ZFS_PROP_GROUPUSED || p == ZFS_PROP_GROUPQUOTA) &&
-		    !(types & (USTYPE_PSX_GRP | USTYPE_SMB_GRP))))
+		    (zfs_prop_is_group(p) &&
+		    !(types & (USTYPE_PSX_GRP | USTYPE_SMB_GRP))) ||
+		    (zfs_prop_is_project(p) && types != USTYPE_PROJ))
 			continue;
+
 		cb.cb_prop = p;
-		if ((ret = zfs_userspace(zhp, p, userspace_cb, &cb)) != 0)
+		if ((ret = zfs_userspace(zhp, p, userspace_cb, &cb)) != 0) {
+			zfs_close(zhp);
 			return (ret);
+		}
 	}
+	zfs_close(zhp);
 
 	/* Sort the list */
 	if ((node = uu_avl_first(avl_tree)) == NULL)
@@ -4348,6 +4397,11 @@ zfs_do_receive(int argc, char **argv)
 #define	ZFS_DELEG_PERM_CHANGE_KEY	"change-key"
 #define	ZFS_DELEG_PERM_REMAP		"remap"
 
+#define	ZFS_DELEG_PERM_PROJECTUSED	"projectused"
+#define	ZFS_DELEG_PERM_PROJECTQUOTA	"projectquota"
+#define	ZFS_DELEG_PERM_PROJECTOBJUSED	"projectobjused"
+#define	ZFS_DELEG_PERM_PROJECTOBJQUOTA	"projectobjquota"
+
 #define	ZFS_NUM_DELEG_NOTES ZFS_DELEG_NOTE_NONE
 
 static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
@@ -4380,6 +4434,10 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_USEROBJUSED, ZFS_DELEG_NOTE_USEROBJUSED },
 	{ ZFS_DELEG_PERM_GROUPOBJQUOTA, ZFS_DELEG_NOTE_GROUPOBJQUOTA },
 	{ ZFS_DELEG_PERM_GROUPOBJUSED, ZFS_DELEG_NOTE_GROUPOBJUSED },
+	{ ZFS_DELEG_PERM_PROJECTUSED, ZFS_DELEG_NOTE_PROJECTUSED },
+	{ ZFS_DELEG_PERM_PROJECTQUOTA, ZFS_DELEG_NOTE_PROJECTQUOTA },
+	{ ZFS_DELEG_PERM_PROJECTOBJUSED, ZFS_DELEG_NOTE_PROJECTOBJUSED },
+	{ ZFS_DELEG_PERM_PROJECTOBJQUOTA, ZFS_DELEG_NOTE_PROJECTOBJQUOTA },
 
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
@@ -4462,6 +4520,10 @@ deleg_perm_type(zfs_deleg_note_t note)
 	case ZFS_DELEG_NOTE_USEROBJUSED:
 	case ZFS_DELEG_NOTE_GROUPOBJQUOTA:
 	case ZFS_DELEG_NOTE_GROUPOBJUSED:
+	case ZFS_DELEG_NOTE_PROJECTUSED:
+	case ZFS_DELEG_NOTE_PROJECTQUOTA:
+	case ZFS_DELEG_NOTE_PROJECTOBJUSED:
+	case ZFS_DELEG_NOTE_PROJECTOBJQUOTA:
 		/* other */
 		return (gettext("other"));
 	default:
@@ -4983,6 +5045,20 @@ deleg_perm_comment(zfs_deleg_note_t note)
 		break;
 	case ZFS_DELEG_NOTE_USEROBJUSED:
 		str = gettext("Allows reading any userobjused@... property");
+		break;
+	case ZFS_DELEG_NOTE_PROJECTQUOTA:
+		str = gettext("Allows accessing any projectquota@... property");
+		break;
+	case ZFS_DELEG_NOTE_PROJECTOBJQUOTA:
+		str = gettext("Allows accessing any \n\t\t\t\t"
+		    "projectobjquota@... property");
+		break;
+	case ZFS_DELEG_NOTE_PROJECTUSED:
+		str = gettext("Allows reading any projectused@... property");
+		break;
+	case ZFS_DELEG_NOTE_PROJECTOBJUSED:
+		str = gettext("Allows accessing any \n\t\t\t\t"
+		    "projectobjused@... property");
 		break;
 		/* other */
 	default:

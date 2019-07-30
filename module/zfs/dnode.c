@@ -38,6 +38,7 @@
 #include <sys/dmu_zfetch.h>
 #include <sys/range_tree.h>
 #include <sys/trace_dnode.h>
+#include <sys/zfs_project.h>
 
 dnode_stats_t dnode_stats = {
 	{ "dnode_hold_dbuf_hold",		KSTAT_DATA_UINT64 },

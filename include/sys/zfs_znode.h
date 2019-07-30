@@ -44,6 +44,7 @@
 #include <sys/zil.h>
 #include <sys/vnode_if.h>
 #include <sys/vnode.h>
+#include <sys/zfs_project.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -67,6 +68,18 @@ extern "C" {
 #define	ZFS_REPARSE		0x0000080000000000ull
 #define	ZFS_OFFLINE		0x0000100000000000ull
 #define	ZFS_SPARSE		0x0000200000000000ull
+
+/*
+ * PROJINHERIT attribute is used to indicate that the child object under the
+ * directory which has the PROJINHERIT attribute needs to inherit its parent
+ * project ID that is used by project quota.
+ */
+#define	ZFS_PROJINHERIT		0x0000400000000000ull
+
+/*
+ * PROJID attr is used internally to indicate that the object has project ID.
+ */
+#define	ZFS_PROJID		0x0000800000000000ull
 
 #ifdef __APPLE__
 
