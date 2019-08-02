@@ -60,6 +60,7 @@
 #include <sys/fs/zfs.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sys/zfs_project.h>
 
 #include <libzfs.h>
 #include <libzfs_core.h>
@@ -75,6 +76,7 @@
 #include "zfs_util.h"
 #include "zfs_comutil.h"
 #include "libzfs_impl.h"
+#include "zfs_projectutil.h"
 
 #ifdef __APPLE__
 #include <sys/zfs_mount.h>
@@ -119,6 +121,7 @@ static int zfs_do_unload_key(int argc, char **argv);
 static int zfs_do_change_key(int argc, char **argv);
 static int zfs_do_remap(int argc, char **argv);
 static int zfs_do_version(int argc, char **argv);
+static int zfs_do_project(int argc, char **argv);
 
 /*
  * Enable a reasonable set of defaults for libumem debugging on DEBUG builds.
@@ -161,6 +164,8 @@ typedef enum {
 	HELP_UNALLOW,
 	HELP_USERSPACE,
 	HELP_GROUPSPACE,
+	HELP_PROJECTSPACE,
+	HELP_PROJECT,
 	HELP_HOLD,
 	HELP_HOLDS,
 	HELP_RELEASE,
@@ -211,6 +216,9 @@ static zfs_command_t command_table[] = {
 	{ "upgrade",	zfs_do_upgrade,		HELP_UPGRADE		},
 	{ "userspace",	zfs_do_userspace,	HELP_USERSPACE		},
 	{ "groupspace",	zfs_do_userspace,	HELP_GROUPSPACE		},
+	{ "projectspace", zfs_do_userspace,	HELP_PROJECTSPACE	},
+	{ NULL },
+	{ "project",	zfs_do_project,		HELP_PROJECT		},
 	{ NULL },
 	{ "mount",	zfs_do_mount,		HELP_MOUNT		},
 	{ "unmount",	zfs_do_unmount,		HELP_UNMOUNT		},
@@ -341,6 +349,15 @@ get_usage(zfs_help_t idx)
 		    "[-s field] ...\n"
 		    "\t    [-S field] ... [-t type[,...]] "
 		    "<filesystem|snapshot>\n"));
+	case HELP_PROJECTSPACE:
+		return (gettext("\tprojectspace [-Hp] [-o field[,...]] "
+		    "[-s field] ... \n"
+		    "\t    [-S field] ... <filesystem|snapshot>\n"));
+	case HELP_PROJECT:
+		return (gettext("\tproject [-d|-r] <directory|file ...>\n"
+		    "\tproject -c [-0] [-d|-r] [-p id] <directory|file ...>\n"
+		    "\tproject -C [-k] [-r] <directory ...>\n"
+		    "\tproject [-p id] [-r] [-s] <directory ...>\n"));
 	case HELP_HOLD:
 		return (gettext("\thold [-r] <tag> <snapshot> ...\n"));
 	case HELP_HOLDS:
@@ -516,6 +533,8 @@ usage(boolean_t requested)
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "groupquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
+		(void) fprintf(fp, "\t%-15s ", "projectquota@...");
+		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "userobjquota@...");
 		(void) fprintf(fp, "YES       NO   <size> | none\n");
 		(void) fprintf(fp, "\t%-15s ", "groupobjquota@...");
@@ -529,9 +548,9 @@ usage(boolean_t requested)
 		    "with standard units such as K, M, G, etc.\n"));
 		(void) fprintf(fp, gettext("\nUser-defined properties can "
 		    "be specified by using a name containing a colon (:).\n"));
-		(void) fprintf(fp, gettext("\nThe {user|group}{used|quota}@ "
-		    "properties must be appended with\n"
-		    "a user or group specifier of one of these forms:\n"
+		(void) fprintf(fp, gettext("\nThe {user|group|project}"
+		    "[obj]{used|quota}@ properties must be appended with\n"
+		    "a user|group|project specifier of one of these forms:\n"
 		    "    POSIX name      (eg: \"matt\")\n"
 		    "    POSIX id        (eg: \"126829\")\n"
 		    "    SMB name@domain (eg: \"matt@sun\")\n"
@@ -2295,6 +2314,8 @@ zfs_do_upgrade(int argc, char **argv)
  *               [-S field [-S field]...] [-t type[,...]] filesystem | snapshot
  * zfs groupspace [-Hinp] [-o field[,...]] [-s field [-s field]...]
  *                [-S field [-S field]...] [-t type[,...]] filesystem | snapshot
+ * zfs projectspace [-Hp] [-o field[,...]] [-s field [-s field]...]
+ *                [-S field [-S field]...] filesystem | snapshot
  *
  *	-H      Scripted mode; elide headers and separate columns by tabs.
  *	-i	Translate SID to POSIX ID.
@@ -2314,10 +2335,14 @@ enum us_field_types {
 	USFIELD_TYPE,
 	USFIELD_NAME,
 	USFIELD_USED,
-	USFIELD_QUOTA
+	USFIELD_QUOTA,
+	USFIELD_OBJUSED,
+	USFIELD_OBJQUOTA
 };
-static char *us_field_hdr[] = { "TYPE", "NAME", "USED", "QUOTA" };
-static char *us_field_names[] = { "type", "name", "used", "quota" };
+static char *us_field_hdr[] = { "TYPE", "NAME", "USED", "QUOTA",
+				    "OBJUSED", "OBJQUOTA" };
+static char *us_field_names[] = { "type", "name", "used", "quota",
+				    "objused", "objquota" };
 #define	USFIELD_LAST	(sizeof (us_field_names) / sizeof (char *))
 
 #define	USTYPE_PSX_GRP	(1 << 0)
@@ -4438,7 +4463,6 @@ static zfs_deleg_perm_tab_t zfs_deleg_perm_tbl[] = {
 	{ ZFS_DELEG_PERM_PROJECTQUOTA, ZFS_DELEG_NOTE_PROJECTQUOTA },
 	{ ZFS_DELEG_PERM_PROJECTOBJUSED, ZFS_DELEG_NOTE_PROJECTOBJUSED },
 	{ ZFS_DELEG_PERM_PROJECTOBJQUOTA, ZFS_DELEG_NOTE_PROJECTOBJQUOTA },
-
 	{ NULL, ZFS_DELEG_NOTE_NONE }
 };
 
@@ -8041,6 +8065,211 @@ zfs_do_change_key(int argc, char **argv)
 	nvlist_free(props);
 	zfs_close(zhp);
 	return (0);
+}
+
+/*
+ * 1) zfs project [-d|-r] <file|directory ...>
+ *    List project ID and inherit flag of file(s) or directories.
+ *    -d: List the directory itself, not its children.
+ *    -r: List subdirectories recursively.
+ *
+ * 2) zfs project -C [-k] [-r] <file|directory ...>
+ *    Clear project inherit flag and/or ID on the file(s) or directories.
+ *    -k: Keep the project ID unchanged. If not specified, the project ID
+ *	  will be reset as zero.
+ *    -r: Clear on subdirectories recursively.
+ *
+ * 3) zfs project -c [-0] [-d|-r] [-p id] <file|directory ...>
+ *    Check project ID and inherit flag on the file(s) or directories,
+ *    report the outliers.
+ *    -0: Print file name followed by a NUL instead of newline.
+ *    -d: Check the directory itself, not its children.
+ *    -p: Specify the referenced ID for comparing with the target file(s)
+ *	  or directories' project IDs. If not specified, the target (top)
+ *	  directory's project ID will be used as the referenced one.
+ *    -r: Check subdirectories recursively.
+ *
+ * 4) zfs project [-p id] [-r] [-s] <file|directory ...>
+ *    Set project ID and/or inherit flag on the file(s) or directories.
+ *    -p: Set the project ID as the given id.
+ *    -r: Set on subdirectorie recursively. If not specify "-p" option,
+ *	  it will use top-level directory's project ID as the given id,
+ *	  then set both project ID and inherit flag on all descendants
+ *	  of the top-level directory.
+ *    -s: Set project inherit flag.
+ */
+static int
+zfs_do_project(int argc, char **argv)
+{
+	zfs_project_control_t zpc = {
+		.zpc_expected_projid = ZFS_INVALID_PROJID,
+		.zpc_op = ZFS_PROJECT_OP_DEFAULT,
+		.zpc_dironly = B_FALSE,
+		.zpc_keep_projid = B_FALSE,
+		.zpc_newline = B_TRUE,
+		.zpc_recursive = B_FALSE,
+		.zpc_set_flag = B_FALSE,
+	};
+	int ret = 0, c;
+
+	if (argc < 2)
+		usage(B_FALSE);
+
+	while ((c = getopt(argc, argv, "0Ccdkp:rs")) != -1) {
+		switch (c) {
+		case '0':
+			zpc.zpc_newline = B_FALSE;
+			break;
+		case 'C':
+			if (zpc.zpc_op != ZFS_PROJECT_OP_DEFAULT) {
+				(void) fprintf(stderr, gettext("cannot "
+				    "specify '-C' '-c' '-s' together\n"));
+				usage(B_FALSE);
+			}
+
+			zpc.zpc_op = ZFS_PROJECT_OP_CLEAR;
+			break;
+		case 'c':
+			if (zpc.zpc_op != ZFS_PROJECT_OP_DEFAULT) {
+				(void) fprintf(stderr, gettext("cannot "
+				    "specify '-C' '-c' '-s' together\n"));
+				usage(B_FALSE);
+			}
+
+			zpc.zpc_op = ZFS_PROJECT_OP_CHECK;
+			break;
+		case 'd':
+			zpc.zpc_dironly = B_TRUE;
+			/* overwrite "-r" option */
+			zpc.zpc_recursive = B_FALSE;
+			break;
+		case 'k':
+			zpc.zpc_keep_projid = B_TRUE;
+			break;
+		case 'p': {
+			char *endptr;
+
+			errno = 0;
+			zpc.zpc_expected_projid = strtoull(optarg, &endptr, 0);
+			if (errno != 0 || *endptr != '\0') {
+				(void) fprintf(stderr,
+				    gettext("project ID must be less than "
+				    "%u\n"), UINT32_MAX);
+				usage(B_FALSE);
+			}
+			if (zpc.zpc_expected_projid >= UINT32_MAX) {
+				(void) fprintf(stderr,
+				    gettext("invalid project ID\n"));
+				usage(B_FALSE);
+			}
+			break;
+		}
+		case 'r':
+			zpc.zpc_recursive = B_TRUE;
+			/* overwrite "-d" option */
+			zpc.zpc_dironly = B_FALSE;
+			break;
+		case 's':
+			if (zpc.zpc_op != ZFS_PROJECT_OP_DEFAULT) {
+				(void) fprintf(stderr, gettext("cannot "
+				    "specify '-C' '-c' '-s' together\n"));
+				usage(B_FALSE);
+			}
+
+			zpc.zpc_set_flag = B_TRUE;
+			zpc.zpc_op = ZFS_PROJECT_OP_SET;
+			break;
+		default:
+			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
+			    optopt);
+			usage(B_FALSE);
+		}
+	}
+
+	if (zpc.zpc_op == ZFS_PROJECT_OP_DEFAULT) {
+		if (zpc.zpc_expected_projid != ZFS_INVALID_PROJID)
+			zpc.zpc_op = ZFS_PROJECT_OP_SET;
+		else
+			zpc.zpc_op = ZFS_PROJECT_OP_LIST;
+	}
+
+	switch (zpc.zpc_op) {
+	case ZFS_PROJECT_OP_LIST:
+		if (zpc.zpc_keep_projid) {
+			(void) fprintf(stderr,
+			    gettext("'-k' is only valid together with '-C'\n"));
+			usage(B_FALSE);
+		}
+		if (!zpc.zpc_newline) {
+			(void) fprintf(stderr,
+			    gettext("'-0' is only valid together with '-c'\n"));
+			usage(B_FALSE);
+		}
+		break;
+	case ZFS_PROJECT_OP_CHECK:
+		if (zpc.zpc_keep_projid) {
+			(void) fprintf(stderr,
+			    gettext("'-k' is only valid together with '-C'\n"));
+			usage(B_FALSE);
+		}
+		break;
+	case ZFS_PROJECT_OP_CLEAR:
+		if (zpc.zpc_dironly) {
+			(void) fprintf(stderr,
+			    gettext("'-d' is useless together with '-C'\n"));
+			usage(B_FALSE);
+		}
+		if (!zpc.zpc_newline) {
+			(void) fprintf(stderr,
+			    gettext("'-0' is only valid together with '-c'\n"));
+			usage(B_FALSE);
+		}
+		if (zpc.zpc_expected_projid != ZFS_INVALID_PROJID) {
+			(void) fprintf(stderr,
+			    gettext("'-p' is useless together with '-C'\n"));
+			usage(B_FALSE);
+		}
+		break;
+	case ZFS_PROJECT_OP_SET:
+		if (zpc.zpc_dironly) {
+			(void) fprintf(stderr,
+			    gettext("'-d' is useless for set project ID and/or "
+			    "inherit flag\n"));
+			usage(B_FALSE);
+		}
+		if (zpc.zpc_keep_projid) {
+			(void) fprintf(stderr,
+			    gettext("'-k' is only valid together with '-C'\n"));
+			usage(B_FALSE);
+		}
+		if (!zpc.zpc_newline) {
+			(void) fprintf(stderr,
+			    gettext("'-0' is only valid together with '-c'\n"));
+			usage(B_FALSE);
+		}
+		break;
+	default:
+		ASSERT(0);
+		break;
+	}
+
+	argv += optind;
+	argc -= optind;
+	if (argc == 0) {
+		(void) fprintf(stderr,
+		    gettext("missing file or directory target(s)\n"));
+		usage(B_FALSE);
+	}
+
+	for (int i = 0; i < argc; i++) {
+		int err;
+
+		err = zfs_project_handle(argv[i], &zpc);
+		if (err && !ret)
+			ret = err;
+	}
+
+	return (ret);
 }
 
 /*

@@ -1141,46 +1141,6 @@ zfs_set_userquota(zfsvfs_t *zfsvfs, zfs_userquota_prop_t type,
 }
 
 boolean_t
-zfs_fuid_overquota(zfsvfs_t *zfsvfs, boolean_t isgroup, uint64_t fuid)
-{
-	char buf[32];
-	uint64_t used, quota, usedobj, quotaobj;
-	int err;
-
-	usedobj = isgroup ? DMU_GROUPUSED_OBJECT : DMU_USERUSED_OBJECT;
-	quotaobj = isgroup ? zfsvfs->z_groupquota_obj : zfsvfs->z_userquota_obj;
-
-	if (quotaobj == 0 || zfsvfs->z_replay)
-		return (B_FALSE);
-
-	(void) snprintf(buf, sizeof(buf), "%llx", (longlong_t)fuid);
-	err = zap_lookup(zfsvfs->z_os, quotaobj, buf, 8, 1, &quota);
-	if (err != 0)
-		return (B_FALSE);
-
-	err = zap_lookup(zfsvfs->z_os, usedobj, buf, 8, 1, &used);
-	if (err != 0)
-		return (B_FALSE);
-	return (used >= quota);
-}
-
-boolean_t
-zfs_owner_overquota(zfsvfs_t *zfsvfs, znode_t *zp, boolean_t isgroup)
-{
-	uint64_t fuid;
-	uint64_t quotaobj;
-
-	quotaobj = isgroup ? zfsvfs->z_groupquota_obj : zfsvfs->z_userquota_obj;
-
-	fuid = isgroup ? zp->z_gid : zp->z_uid;
-
-	if (quotaobj == 0 || zfsvfs->z_replay)
-		return (B_FALSE);
-
-	return (zfs_fuid_overquota(zfsvfs, isgroup, fuid));
-}
-
-boolean_t
 zfs_id_overobjquota(zfsvfs_t *zfsvfs, uint64_t usedobj, uint64_t id)
 {
 	char buf[20 + DMU_OBJACCT_PREFIX_LEN];
@@ -2066,6 +2026,8 @@ zfs_mount_label_policy(vfs_t *vfsp, char *osname)
 }
 #endif	/* SECLABEL */
 
+
+
 /*
  * zfs_vfs_mountroot
  * Given a device vnode created by vfs_mountroot bdevvp,
@@ -2455,6 +2417,84 @@ out:
 	return (error);
 }
 
+#ifdef linux
+static int
+zfs_statfs_project(zfsvfs_t *zfsvfs, znode_t *zp, struct kstatfs *statp,
+    uint32_t bshift)
+{
+	char buf[20 + DMU_OBJACCT_PREFIX_LEN];
+	uint64_t offset = DMU_OBJACCT_PREFIX_LEN;
+	uint64_t quota;
+	uint64_t used;
+	int err;
+
+	strlcpy(buf, DMU_OBJACCT_PREFIX, DMU_OBJACCT_PREFIX_LEN + 1);
+	err = id_to_fuidstr(zfsvfs, NULL, zp->z_projid, buf + offset, B_FALSE);
+	if (err)
+		return (err);
+
+	if (zfsvfs->z_projectquota_obj == 0)
+		goto objs;
+
+	err = zap_lookup(zfsvfs->z_os, zfsvfs->z_projectquota_obj,
+	    buf + offset, 8, 1, &quota);
+	if (err == ENOENT)
+		goto objs;
+	else if (err)
+		return (err);
+
+	err = zap_lookup(zfsvfs->z_os, DMU_PROJECTUSED_OBJECT,
+	    buf + offset, 8, 1, &used);
+	if (unlikely(err == ENOENT)) {
+		uint32_t blksize;
+		u_longlong_t nblocks;
+
+		/*
+		 * Quota accounting is async, so it is possible race case.
+		 * There is at least one object with the given project ID.
+		 */
+		sa_object_size(zp->z_sa_hdl, &blksize, &nblocks);
+		if (unlikely(zp->z_blksz == 0))
+			blksize = zfsvfs->z_max_blksz;
+
+		used = blksize * nblocks;
+	} else if (err) {
+		return (err);
+	}
+
+	statp->f_blocks = quota >> bshift;
+	statp->f_bfree = (quota > used) ? ((quota - used) >> bshift) : 0;
+	statp->f_bavail = statp->f_bfree;
+
+objs:
+	if (zfsvfs->z_projectobjquota_obj == 0)
+		return (0);
+
+	err = zap_lookup(zfsvfs->z_os, zfsvfs->z_projectobjquota_obj,
+	    buf + offset, 8, 1, &quota);
+	if (err == ENOENT)
+		return (0);
+	else if (err)
+		return (err);
+
+	err = zap_lookup(zfsvfs->z_os, DMU_PROJECTUSED_OBJECT,
+	    buf, 8, 1, &used);
+	if (unlikely(err == ENOENT)) {
+		/*
+		 * Quota accounting is async, so it is possible race case.
+		 * There is at least one object with the given project ID.
+		 */
+		used = 1;
+	} else if (err) {
+		return (err);
+	}
+
+	statp->f_files = quota;
+	statp->f_ffree = (quota > used) ? (quota - used) : 0;
+
+	return (0);
+}
+#endif
 
 int
 zfs_vfs_getattr(struct mount *mp, struct vfs_attr *fsap, __unused vfs_context_t context)

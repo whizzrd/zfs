@@ -83,6 +83,7 @@ typedef enum zpl_attr {
 	ZPL_ADDTIME,
 	ZPL_DOCUMENTID,
 #endif
+	ZPL_PROJID,
 	ZPL_END
 } zpl_attr_t;
 

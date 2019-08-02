@@ -5611,7 +5611,7 @@ zfs_ioc_promote(zfs_cmd_t *zc)
 }
 
 /*
- * Retrieve a single {user|group}{used|quota}@... property.
+ * Retrieve a single {user|group|project}{used|quota}@... property.
  *
  * inputs:
  * zc_name	name of filesystem
